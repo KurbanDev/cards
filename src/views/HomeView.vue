@@ -1,12 +1,24 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
 import {
-  Upload, Settings, BrainCircuit, Plus, Filter, RefreshCw, Search, Trash2
+  Upload,
+  Settings,
+  BrainCircuit,
+  Plus,
+  Filter,
+  RefreshCw,
+  Search,
+  Trash2,
+  LayoutGrid,
+  List,
+  CheckCircle,
+  XCircle
 } from 'lucide-vue-next';
 import type { Card, AppSettings, RawImportItem } from '@/types';
 import FlashCard from '@/components/FlashCard.vue';
 import SettingsModal from '@/components/SettingsModal.vue';
 import AddCardModal from '@/components/AddCardModal.vue';
+import TableView from '@/components/TableView.vue';
 
 // --- Константы ---
 const DEFAULT_SETTINGS: AppSettings = {
@@ -22,6 +34,8 @@ const settings = ref<AppSettings>(DEFAULT_SETTINGS);
 const activeCategory = ref("All");
 const filterStatus = ref<"all" | "correct" | "incorrect">("all");
 const selectedIds = ref<Set<string>>(new Set());
+const viewMode = ref<'cards' | 'table'>('cards');
+const activeCardId = ref<string | null>(null);
 
 // Модалки
 const isSettingsOpen = ref(false);
@@ -33,9 +47,20 @@ const generateId = () => Math.random().toString(36).substr(2, 9);
 const toggleSelection = (id: string) => {
   if (selectedIds.value.has(id)) {
     selectedIds.value.delete(id);
+    if (activeCardId.value === id) {
+      activeCardId.value = null;
+    }
   } else {
     selectedIds.value.add(id);
+    activeCardId.value = id;
   }
+};
+
+const handleRowSelect = (id: string) => {
+  if (!selectedIds.value.has(id)) {
+    selectedIds.value.add(id);
+  }
+  activeCardId.value = id;
 };
 
 const deleteSelectedCards = () => {
@@ -45,6 +70,7 @@ const deleteSelectedCards = () => {
   if (confirm(`Вы уверены, что хотите удалить ${count} карточек? Это действие необратимо.`)) {
     cards.value = cards.value.filter(c => !selectedIds.value.has(c.id));
     selectedIds.value.clear(); // Очистить выбор после удаления
+    activeCardId.value = null;
   }
 };
 
@@ -56,8 +82,14 @@ const selectAllVisible = () => {
   if (allSelected) {
     // Снимаем выбор только с видимых (или очищаем всё, по желанию)
     allVisibleIds.forEach(id => selectedIds.value.delete(id));
+    if (activeCardId.value && !selectedIds.value.has(activeCardId.value)) {
+      activeCardId.value = null;
+    }
   } else {
     allVisibleIds.forEach(id => selectedIds.value.add(id));
+    if (allVisibleIds.length > 0) {
+      activeCardId.value = allVisibleIds[0];
+    }
   }
 };
 
@@ -83,6 +115,19 @@ onMounted(() => {
 watch(cards, (newVal) => {
   localStorage.setItem('flashcards-data', JSON.stringify(newVal));
 }, { deep: true });
+
+watch(cards, (newCards) => {
+  const existingIds = new Set(newCards.map(c => c.id));
+  selectedIds.value.forEach(id => {
+    if (!existingIds.has(id)) {
+      selectedIds.value.delete(id);
+    }
+  });
+
+  if (activeCardId.value && !existingIds.has(activeCardId.value)) {
+    activeCardId.value = null;
+  }
+});
 
 watch(settings, (newVal) => {
   localStorage.setItem('flashcards-settings', JSON.stringify(newVal));
@@ -151,6 +196,10 @@ const saveAiAnswer = (id: string, answer: string) => {
 const deleteCard = (id: string) => {
   if (confirm("Удалить эту карточку?")) {
     cards.value = cards.value.filter(c => c.id !== id);
+    selectedIds.value.delete(id);
+    if (activeCardId.value === id) {
+      activeCardId.value = null;
+    }
   }
 };
 
@@ -192,6 +241,17 @@ const filteredCards = computed(() => {
     return matchesCategory && matchesStatus;
   });
 });
+
+const activeCard = computed(() => {
+  if (!activeCardId.value) return null;
+  return cards.value.find(c => c.id === activeCardId.value) || null;
+});
+
+watch(filteredCards, (list) => {
+  if (activeCardId.value && !list.some(c => c.id === activeCardId.value)) {
+    activeCardId.value = null;
+  }
+});
 </script>
 
 <template>
@@ -227,10 +287,10 @@ const filteredCards = computed(() => {
       <div class="mb-8 space-y-4">
         <div class="flex flex-wrap gap-2">
           <button
-              v-for="cat in categories"
-              :key="cat"
-              @click="activeCategory = cat"
-              :class="[
+            v-for="cat in categories"
+            :key="cat"
+            @click="activeCategory = cat"
+            :class="[
               'px-4 py-1.5 rounded-full text-sm font-medium border transition-colors',
               activeCategory === cat
                 ? 'bg-emerald-600 text-white border-emerald-600'
@@ -241,8 +301,8 @@ const filteredCards = computed(() => {
           </button>
         </div>
 
-        <div class="flex flex-wrap items-center justify-between gap-4 bg-white p-3 rounded-lg shadow-sm border border-gray-100">
-          <div class="flex items-center gap-4 text-sm">
+        <div class="flex flex-wrap items-center gap-4 bg-white p-3 rounded-lg shadow-sm border border-gray-100">
+          <div class="flex flex-wrap items-center gap-4 text-sm">
             <div class="flex items-center gap-2 text-gray-600">
               <Filter :size="16" />
               <span>Показать:</span>
@@ -256,18 +316,44 @@ const filteredCards = computed(() => {
             <span class="text-gray-500">Всего: {{ filteredCards.length }}</span>
           </div>
 
-          <button
+          <div class="flex items-center gap-2 ml-auto flex-wrap">
+            <div class="flex items-center bg-gray-100 rounded-lg p-1 text-sm font-medium">
+              <button
+                @click="viewMode = 'cards'"
+                :class="['flex items-center gap-1 px-3 py-1 rounded-md transition', viewMode === 'cards' ? 'bg-white shadow text-emerald-700' : 'text-gray-600 hover:text-emerald-700']"
+              >
+                <LayoutGrid :size="16" />
+                Карточки
+              </button>
+              <button
+                @click="viewMode = 'table'"
+                :class="['flex items-center gap-1 px-3 py-1 rounded-md transition', viewMode === 'table' ? 'bg-white shadow text-emerald-700' : 'text-gray-600 hover:text-emerald-700']"
+              >
+                <List :size="16" />
+                Таблица
+              </button>
+            </div>
+
+            <button
+              class="px-3 py-1 rounded text-sm flex items-center gap-1 transition-colors font-medium border border-gray-200 text-gray-700 hover:border-emerald-300"
+              @click="selectAllVisible"
+            >
+              Выбрать всё
+            </button>
+
+            <button
               v-if="selectedIds.size > 0"
               @click="deleteSelectedCards"
               class="bg-red-50 text-red-600 hover:bg-red-100 px-3 py-1 rounded text-sm flex items-center gap-1 transition-colors font-medium"
-          >
-            <Trash2 :size="14" />
-            Удалить ({{ selectedIds.size }})
-          </button>
+            >
+              <Trash2 :size="14" />
+              Удалить ({{ selectedIds.size }})
+            </button>
 
-          <button @click="resetAllProgress" class="text-red-600 hover:text-red-800 text-sm flex items-center gap-1">
-            <RefreshCw :size="14" /> Сбросить весь прогресс
-          </button>
+            <button @click="resetAllProgress" class="text-red-600 hover:text-red-800 text-sm flex items-center gap-1">
+              <RefreshCw :size="14" /> Сбросить весь прогресс
+            </button>
+          </div>
         </div>
       </div>
 
@@ -279,33 +365,92 @@ const filteredCards = computed(() => {
         <p class="text-gray-500 mt-1">Импортируйте файл или измените фильтры.</p>
       </div>
 
-      <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <FlashCard
-            v-for="card in filteredCards"
-            :key="card.id"
-            :card="card"
-            :settings="settings"
-            :is-selected="selectedIds.has(card.id)"
-            @toggle-select="toggleSelection"
-            @update-stats="updateCardStats"
-            @save-ai="saveAiAnswer"
-            @delete="deleteCard"
-            @reset="resetCardProgress"
-        />
+      <div v-else class="flex flex-col lg:flex-row gap-6 items-start">
+        <div class="flex-1 w-full space-y-4">
+          <div v-if="viewMode === 'cards'" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <FlashCard
+              v-for="card in filteredCards"
+              :key="card.id"
+              :card="card"
+              :settings="settings"
+              :is-selected="selectedIds.has(card.id)"
+              @toggle-select="toggleSelection"
+              @update-stats="updateCardStats"
+              @save-ai="saveAiAnswer"
+              @delete="deleteCard"
+              @reset="resetCardProgress"
+            />
+          </div>
+
+          <div v-else class="space-y-3">
+            <p class="text-sm text-gray-500">Кликните по строке, чтобы открыть карточку справа.</p>
+            <TableView
+              :cards="filteredCards"
+              :selected-ids="selectedIds"
+              @row-select="handleRowSelect"
+              @toggle-select="toggleSelection"
+            />
+          </div>
+        </div>
+
+        <aside v-if="activeCard" class="w-full lg:w-96 bg-white border border-gray-100 rounded-xl shadow-sm p-5 self-stretch sticky top-24 space-y-4">
+          <div class="flex items-start justify-between gap-3">
+            <div class="space-y-1">
+              <p class="text-xs uppercase tracking-wide text-gray-500">Выбранная карточка</p>
+              <p class="text-lg font-semibold text-gray-800">{{ activeCard.question }}</p>
+              <div class="flex items-center gap-2 text-xs text-gray-500">
+                <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-emerald-50 text-emerald-700">{{ activeCard.category }}</span>
+                <span class="flex items-center gap-1 text-green-600 font-semibold">
+                  <CheckCircle :size="12" /> {{ activeCard.correctCount }}
+                </span>
+                <span class="flex items-center gap-1 text-red-500 font-semibold">
+                  <XCircle :size="12" /> {{ activeCard.incorrectCount }}
+                </span>
+              </div>
+            </div>
+            <button class="text-gray-400 hover:text-gray-600" @click="activeCardId = null">✕</button>
+          </div>
+
+          <div class="space-y-3 text-sm">
+            <div>
+              <p class="text-xs uppercase text-gray-400 font-semibold mb-1">Ответ</p>
+              <p class="text-gray-700 whitespace-pre-wrap">{{ activeCard.answer || 'Ответ не указан.' }}</p>
+            </div>
+            <div v-if="activeCard.aiAnswer" class="bg-emerald-50 p-3 rounded-lg border border-emerald-100">
+              <p class="text-xs uppercase text-emerald-600 font-semibold mb-1">AI Ответ</p>
+              <p class="text-gray-700 whitespace-pre-wrap">{{ activeCard.aiAnswer }}</p>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3 text-sm font-medium">
+            <button
+              @click="resetCardProgress(activeCard.id)"
+              class="flex items-center justify-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 rounded"
+            >
+              <RefreshCw :size="14" /> Сбросить
+            </button>
+            <button
+              @click="deleteCard(activeCard.id)"
+              class="flex items-center justify-center gap-2 bg-red-50 hover:bg-red-100 text-red-600 py-2 rounded"
+            >
+              <Trash2 :size="14" /> Удалить
+            </button>
+          </div>
+        </aside>
       </div>
     </main>
 
     <SettingsModal
-        v-if="isSettingsOpen"
-        v-model:settings="settings"
-        @close="isSettingsOpen = false"
+      v-if="isSettingsOpen"
+      v-model:settings="settings"
+      @close="isSettingsOpen = false"
     />
 
     <AddCardModal
-        v-if="isAddModalOpen"
-        :categories="categories.filter(c => c !== 'All')"
-        @save="addNewCard"
-        @close="isAddModalOpen = false"
+      v-if="isAddModalOpen"
+      :categories="categories.filter(c => c !== 'All')"
+      @save="addNewCard"
+      @close="isAddModalOpen = false"
     />
   </div>
 </template>

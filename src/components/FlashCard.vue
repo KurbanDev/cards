@@ -61,6 +61,7 @@ const handleToggleSelection = (event: Event) => {
     <button
         class="self-start text-sm font-medium text-emerald-600 hover:text-emerald-700 flex items-center gap-2"
         type="button"
+        @click.stop="handleCardClick"
     >
       Открыть детали
     </button>

@@ -1,4 +1,4 @@
-import { cva } from "class-variance-authority";
+import { cva } from "@/lib/cva";
 
 export { default as Badge } from "./Badge.vue";
 

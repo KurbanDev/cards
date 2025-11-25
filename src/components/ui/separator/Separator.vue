@@ -1,22 +1,23 @@
 <script setup>
-import { reactiveOmit } from "@vueuse/core";
-import { Separator } from "reka-ui";
+import { computed } from "vue";
 import { cn } from "@/lib/utils";
 
 const props = defineProps({
   orientation: { type: String, required: false, default: "horizontal" },
   decorative: { type: Boolean, required: false, default: true },
-  asChild: { type: Boolean, required: false },
-  as: { type: null, required: false },
+  as: { type: [String, Object], required: false, default: "div" },
   class: { type: null, required: false },
 });
 
-const delegatedProps = reactiveOmit(props, "class");
+const role = computed(() => (props.decorative ? "presentation" : "separator"));
+const componentTag = computed(() => props.as || "div");
 </script>
 
 <template>
-  <Separator
-    v-bind="delegatedProps"
+  <component
+    :is="componentTag"
+    :role="role"
+    :aria-orientation="props.orientation"
     :class="
       cn(
         'shrink-0 bg-border',

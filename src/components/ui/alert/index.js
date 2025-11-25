@@ -1,4 +1,4 @@
-import { cva } from "class-variance-authority";
+import { cva } from "@/lib/cva";
 
 export { default as Alert } from "./Alert.vue";
 export { default as AlertDescription } from "./AlertDescription.vue";

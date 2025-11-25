@@ -1,23 +1,23 @@
 <script setup>
-import { Primitive } from "reka-ui";
+import { computed } from "vue";
 import { cn } from "@/lib/utils";
 import { buttonVariants } from ".";
 
 const props = defineProps({
-  variant: { type: null, required: false },
-  size: { type: null, required: false },
+  variant: { type: String, required: false },
+  size: { type: String, required: false },
   class: { type: null, required: false },
-  asChild: { type: Boolean, required: false },
-  as: { type: null, required: false, default: "button" },
+  as: { type: [String, Object], required: false, default: "button" },
 });
+
+const componentTag = computed(() => props.as || "button");
 </script>
 
 <template>
-  <Primitive
-    :as="as"
-    :as-child="asChild"
+  <component
+    :is="componentTag"
     :class="cn(buttonVariants({ variant, size }), props.class)"
   >
     <slot />
-  </Primitive>
+  </component>
 </template>

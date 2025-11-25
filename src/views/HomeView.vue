@@ -36,6 +36,8 @@ const filterStatus = ref<"all" | "correct" | "incorrect">("all");
 const selectedIds = ref<Set<string>>(new Set());
 const viewMode = ref<'cards' | 'table'>('cards');
 const activeCardId = ref<string | null>(null);
+const aiError = ref("");
+const isAiLoading = ref(false);
 
 // Модалки
 const isSettingsOpen = ref(false);
@@ -49,10 +51,12 @@ const toggleSelection = (id: string) => {
     selectedIds.value.delete(id);
     if (activeCardId.value === id) {
       activeCardId.value = null;
+      aiError.value = "";
     }
   } else {
     selectedIds.value.add(id);
     activeCardId.value = id;
+    aiError.value = "";
   }
 };
 
@@ -61,6 +65,15 @@ const handleRowSelect = (id: string) => {
     selectedIds.value.add(id);
   }
   activeCardId.value = id;
+  aiError.value = "";
+};
+
+const handleCardOpen = (id: string) => {
+  activeCardId.value = id;
+  aiError.value = "";
+  if (!selectedIds.value.has(id)) {
+    selectedIds.value.add(id);
+  }
 };
 
 const deleteSelectedCards = () => {
@@ -193,12 +206,52 @@ const saveAiAnswer = (id: string, answer: string) => {
   if (card) card.aiAnswer = answer;
 };
 
+const generateAiAnswer = async (id: string) => {
+  if (!settings.value.apiKey) {
+    alert("Пожалуйста, введите API Key в настройках");
+    return;
+  }
+
+  isAiLoading.value = true;
+  aiError.value = "";
+
+  try {
+    const card = cards.value.find(c => c.id === id);
+    if (!card) return;
+
+    const prompt = settings.value.promptTemplate.replace('{question}', card.question);
+
+    const response = await fetch(settings.value.apiUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${settings.value.apiKey}`
+      },
+      body: JSON.stringify({
+        model: settings.value.model,
+        messages: [{ role: "user", content: prompt }],
+      })
+    });
+
+    const data = await response.json();
+    if (data.error) throw new Error(data.error.message);
+
+    const content = data.choices?.[0]?.message?.content || "Нет ответа от API";
+    saveAiAnswer(id, content);
+  } catch (err: any) {
+    aiError.value = err.message || "Ошибка генерации";
+  } finally {
+    isAiLoading.value = false;
+  }
+};
+
 const deleteCard = (id: string) => {
   if (confirm("Удалить эту карточку?")) {
     cards.value = cards.value.filter(c => c.id !== id);
     selectedIds.value.delete(id);
     if (activeCardId.value === id) {
       activeCardId.value = null;
+      aiError.value = "";
     }
   }
 };
@@ -372,11 +425,9 @@ watch(filteredCards, (list) => {
               v-for="card in filteredCards"
               :key="card.id"
               :card="card"
-              :settings="settings"
               :is-selected="selectedIds.has(card.id)"
               @toggle-select="toggleSelection"
-              @update-stats="updateCardStats"
-              @save-ai="saveAiAnswer"
+              @select-card="handleCardOpen"
               @delete="deleteCard"
               @reset="resetCardProgress"
             />
@@ -420,9 +471,30 @@ watch(filteredCards, (list) => {
               <p class="text-xs uppercase text-emerald-600 font-semibold mb-1">AI Ответ</p>
               <p class="text-gray-700 whitespace-pre-wrap">{{ activeCard.aiAnswer }}</p>
             </div>
+            <p v-if="aiError" class="text-xs text-red-500">{{ aiError }}</p>
           </div>
 
           <div class="grid grid-cols-2 gap-3 text-sm font-medium">
+            <button
+              @click="updateCardStats(activeCard.id, false)"
+              class="flex items-center justify-center gap-2 bg-red-50 text-red-700 py-2 rounded hover:bg-red-100 transition"
+            >
+              <XCircle :size="14" /> Не верно
+            </button>
+            <button
+              @click="updateCardStats(activeCard.id, true)"
+              class="flex items-center justify-center gap-2 bg-green-50 text-green-700 py-2 rounded hover:bg-green-100 transition"
+            >
+              <CheckCircle :size="14" /> Верно
+            </button>
+            <button
+              @click="generateAiAnswer(activeCard.id)"
+              :disabled="isAiLoading"
+              class="flex items-center justify-center gap-2 bg-emerald-50 text-emerald-700 py-2 rounded hover:bg-emerald-100 transition disabled:opacity-60 col-span-2"
+            >
+              <BrainCircuit :size="14" :class="{ 'animate-spin': isAiLoading }" />
+              {{ activeCard.aiAnswer ? 'Сгенерировать заново (GPT)' : 'Спросить AI (GPT)' }}
+            </button>
             <button
               @click="resetCardProgress(activeCard.id)"
               class="flex items-center justify-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 rounded"
